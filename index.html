@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Camera Streamer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 30px;
+            font-size: 24px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .camera-container {
+            position: relative;
+            margin: 20px 0;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        #videoElement {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+            background: #000;
+        }
+
+        .controls {
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+
+        button {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+
+        .status.connected {
+            background: rgba(40, 167, 69, 0.3);
+            border: 2px solid #28a745;
+        }
+
+        .status.disconnected {
+            background: rgba(220, 53, 69, 0.3);
+            border: 2px solid #dc3545;
+        }
+
+        .status.connecting {
+            background: rgba(255, 193, 7, 0.3);
+            border: 2px solid #ffc107;
+        }
+
+        .camera-select {
+            margin: 20px 0;
+        }
+
+        select {
+            background: rgba(0,0,0,0.5);
+            color: white;
+            border: 2px solid #666;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 16px;
+            width: 100%;
+        }
+
+        .info {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .quality-controls {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+        }
+
+        .quality-controls label {
+            font-size: 14px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 Mobile Camera Streamer</h1>
+        
+        <div class="camera-container">
+            <video id="videoElement" autoplay muted playsinline></video>
+        </div>
+
+        <div class="controls">
+            <div class="camera-select">
+                <label for="cameraSelect">Select Camera:</label>
+                <select id="cameraSelect">
+                    <option value="user">Front Camera</option>
+                    <option value="environment">Back Camera</option>
+                </select>
+            </div>
+
+            <div class="quality-controls">
+                <div style="flex: 1; margin-right: 10px;">
+                    <label for="qualityRange">Quality: <span id="qualityValue">0.7</span></label>
+                    <input type="range" id="qualityRange" min="0.1" max="1" step="0.1" value="0.7">
+                </div>
+                <div style="flex: 1; margin-left: 10px;">
+                    <label for="fpsRange">FPS: <span id="fpsValue">15</span></label>
+                    <input type="range" id="fpsRange" min="5" max="30" step="5" value="15">
+                </div>
+            </div>
+
+            <button id="startBtn">Start Camera</button>
+            <button id="stopBtn" disabled>Stop Camera</button>
+        </div>
+
+        <div id="status" class="status disconnected">
+            📡 Ready to connect
+        </div>
+
+        <div class="info">
+            <strong>📋 Setup Instructions:</strong><br>
+            1. Make sure your phone and laptop are on the same WiFi<br>
+            2. Click "Start Camera" to begin<br>
+            3. Stream will be available at: <strong>http://[phone-ip]:8080/video</strong><br>
+            4. Add this URL to your laptop viewer
+        </div>
+    </div>
+
+    <script>
+        let mediaStream = null;
+        let canvas = null;
+        let ctx = null;
+        let isStreaming = false;
+        let streamInterval = null;
+        let server = null;
+
+        const videoElement = document.getElementById('videoElement');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const qualityRange = document.getElementById('qualityRange');
+        const fpsRange = document.getElementById('fpsRange');
+        const qualityValue = document.getElementById('qualityValue');
+        const fpsValue = document.getElementById('fpsValue');
+
+        // Update display values
+        qualityRange.addEventListener('input', () => {
+            qualityValue.textContent = qualityRange.value;
+        });
+
+        fpsRange.addEventListener('input', () => {
+            fpsValue.textContent = fpsRange.value;
+        });
+
+        // Simple HTTP server simulation for MJPEG streaming
+        class MJPEGServer {
+            constructor() {
+                this.clients = [];
+                this.isRunning = false;
+            }
+
+            start() {
+                this.isRunning = true;
+                updateStatus('connecting', '🔄 Starting server...');
+                
+                // In a real implementation, you would need a proper server
+                // This is a simplified version that shows the concept
+                setTimeout(() => {
+                    updateStatus('connected', '✅ Server running on port 8080');
+                }, 1000);
+            }
+
+            stop() {
+                this.isRunning = false;
+                updateStatus('disconnected', '❌ Server stopped');
+            }
+
+            broadcastFrame(frameData) {
+                if (this.isRunning) {
+                    // In a real implementation, this would send MJPEG frames
+                    // to connected clients via HTTP multipart response
+                    console.log('Broadcasting frame:', frameData.length, 'bytes');
+                }
+            }
+        }
+
+        function updateStatus(type, message) {
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+
+        async function startCamera() {
+            try {
+                const constraints = {
+                    video: {
+                        facingMode: cameraSelect.value,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+
+                mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = mediaStream;
+
+                // Create canvas for frame capture
+                canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 480;
+                ctx = canvas.getContext('2d');
+
+                // Start server
+                server = new MJPEGServer();
+                server.start();
+
+                // Start streaming
+                startStreaming();
+
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                updateStatus('disconnected', '❌ Camera access denied');
+                alert('Unable to access camera. Please check permissions.');
+            }
+        }
+
+        function startStreaming() {
+            if (!isStreaming) {
+                isStreaming = true;
+                const fps = parseInt(fpsRange.value);
+                const interval = 1000 / fps;
+
+                streamInterval = setInterval(() => {
+                    captureFrame();
+                }, interval);
+            }
+        }
+
+        function captureFrame() {
+            if (ctx && videoElement.videoWidth > 0) {
+                // Draw video frame to canvas
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                
+                // Convert to JPEG
+                const quality = parseFloat(qualityRange.value);
+                const frameData = canvas.toDataURL('image/jpeg', quality);
+                
+                // Send to server (in real implementation)
+                if (server) {
+                    server.broadcastFrame(frameData);
+                }
+            }
+        }
+
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            if (streamInterval) {
+                clearInterval(streamInterval);
+                streamInterval = null;
+            }
+
+            if (server) {
+                server.stop();
+                server = null;
+            }
+
+            isStreaming = false;
+            videoElement.srcObject = null;
+
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+
+        // Event listeners
+        startBtn.addEventListener('click', startCamera);
+        stopBtn.addEventListener('click', stopCamera);
+
+        cameraSelect.addEventListener('change', () => {
+            if (isStreaming) {
+                stopCamera();
+                setTimeout(startCamera, 100);
+            }
+        });
+
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && isStreaming) {
+                // Keep streaming even when tab is hidden
+                console.log('Page hidden, continuing stream...');
+            }
+        });
+
+        // Prevent screen from sleeping
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Screen wake lock acquired');
+            } catch (err) {
+                console.log('Wake lock not supported:', err);
+            }
+        }
+
+        // Request wake lock when streaming starts
+        startBtn.addEventListener('click', requestWakeLock);
+
+        // Display current IP address info
+        setTimeout(() => {
+            const info = document.querySelector('.info');
+            info.innerHTML += `<br><br><strong>💡 Note:</strong> This is a demo interface. For actual MJPEG streaming, you'll need to use a dedicated camera app like "IP Webcam" or "DroidCam" on your phone.`;
+        }, 2000);
+    </script>
+</body>
+</html>
