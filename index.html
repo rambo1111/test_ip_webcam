@@ -181,6 +181,19 @@
             3. Stream will be available at: <strong>http://[phone-ip]:8080/video</strong><br>
             4. Add this URL to your laptop viewer
         </div>
+
+        <div id="ipSection" class="info" style="display: none;">
+            <strong>📡 Stream URL:</strong><br>
+            <div style="background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; margin: 10px 0; font-family: monospace;">
+                <span id="streamUrl">http://[detecting...]:8080/video</span>
+            </div>
+            <button id="copyBtn" style="background: linear-gradient(45deg, #28a745, #20c997); margin: 5px;">
+                📋 Copy URL
+            </button>
+            <button id="shareBtn" style="background: linear-gradient(45deg, #007bff, #0056b3); margin: 5px;">
+                📤 Share URL
+            </button>
+        </div>
     </div>
 
     <script>
@@ -190,6 +203,7 @@
         let isStreaming = false;
         let streamInterval = null;
         let server = null;
+        let currentIP = null;
 
         const videoElement = document.getElementById('videoElement');
         const startBtn = document.getElementById('startBtn');
@@ -200,6 +214,91 @@
         const fpsRange = document.getElementById('fpsRange');
         const qualityValue = document.getElementById('qualityValue');
         const fpsValue = document.getElementById('fpsValue');
+        const ipSection = document.getElementById('ipSection');
+        const streamUrl = document.getElementById('streamUrl');
+        const copyBtn = document.getElementById('copyBtn');
+        const shareBtn = document.getElementById('shareBtn');
+
+        // Get local IP address
+        async function getLocalIP() {
+            try {
+                // Create a dummy peer connection
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                
+                // Create a data channel
+                pc.createDataChannel('');
+                
+                // Create offer and set as local description
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                // Wait for ICE candidates
+                return new Promise((resolve) => {
+                    pc.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            const candidate = event.candidate.candidate;
+                            const ipMatch = candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
+                            if (ipMatch) {
+                                pc.close();
+                                resolve(ipMatch[1]);
+                            }
+                        }
+                    };
+                });
+            } catch (error) {
+                console.error('Error getting local IP:', error);
+                return 'localhost';
+            }
+        }
+
+        // Copy URL to clipboard
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                copyBtn.textContent = '✅ Copied!';
+                copyBtn.style.background = 'linear-gradient(45deg, #28a745, #20c997)';
+                
+                setTimeout(() => {
+                    copyBtn.textContent = '📋 Copy URL';
+                    copyBtn.style.background = 'linear-gradient(45deg, #28a745, #20c997)';
+                }, 2000);
+            } catch (error) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                copyBtn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = '📋 Copy URL';
+                }, 2000);
+            }
+        }
+
+        // Share URL using Web Share API
+        async function shareURL(url) {
+            try {
+                if (navigator.share) {
+                    await navigator.share({
+                        title: 'Camera Stream URL',
+                        text: 'Use this URL to view my camera stream',
+                        url: url
+                    });
+                } else {
+                    // Fallback: copy to clipboard
+                    await copyToClipboard(url);
+                    alert('URL copied to clipboard (share not supported on this device)');
+                }
+            } catch (error) {
+                console.error('Error sharing:', error);
+                await copyToClipboard(url);
+            }
+        }
 
         // Update display values
         qualityRange.addEventListener('input', () => {
@@ -249,6 +348,10 @@
 
         async function startCamera() {
             try {
+                // Get local IP address first
+                updateStatus('connecting', '🔍 Detecting IP address...');
+                currentIP = await getLocalIP();
+                
                 const constraints = {
                     video: {
                         facingMode: cameraSelect.value,
@@ -269,6 +372,11 @@
                 // Start server
                 server = new MJPEGServer();
                 server.start();
+
+                // Show IP section and update URL
+                const url = `http://${currentIP}:8080/video`;
+                streamUrl.textContent = url;
+                ipSection.style.display = 'block';
 
                 // Start streaming
                 startStreaming();
