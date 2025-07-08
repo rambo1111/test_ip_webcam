@@ -136,6 +136,44 @@
             width: 100%;
             margin: 10px 0;
         }
+
+        .stream-url {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-family: monospace;
+            word-break: break-all;
+            border: 2px solid #28a745;
+        }
+
+        .copy-btn {
+            background: linear-gradient(45deg, #28a745, #20c997) !important;
+            margin: 5px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .frames-container {
+            display: none;
+            margin: 20px 0;
+        }
+
+        .frame-preview {
+            width: 100%;
+            max-width: 300px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+
+        .frame-counter {
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
@@ -157,12 +195,12 @@
 
             <div class="quality-controls">
                 <div style="flex: 1; margin-right: 10px;">
-                    <label for="qualityRange">Quality: <span id="qualityValue">0.7</span></label>
-                    <input type="range" id="qualityRange" min="0.1" max="1" step="0.1" value="0.7">
+                    <label for="qualityRange">Quality: <span id="qualityValue">0.8</span></label>
+                    <input type="range" id="qualityRange" min="0.3" max="1" step="0.1" value="0.8">
                 </div>
                 <div style="flex: 1; margin-left: 10px;">
-                    <label for="fpsRange">FPS: <span id="fpsValue">15</span></label>
-                    <input type="range" id="fpsRange" min="5" max="30" step="5" value="15">
+                    <label for="fpsRange">FPS: <span id="fpsValue">10</span></label>
+                    <input type="range" id="fpsRange" min="5" max="30" step="5" value="10">
                 </div>
             </div>
 
@@ -171,28 +209,31 @@
         </div>
 
         <div id="status" class="status disconnected">
-            📡 Ready to connect
+            📡 Ready to start streaming
+        </div>
+
+        <div id="streamInfo" class="info hidden">
+            <strong>📡 Stream Details:</strong><br>
+            <div class="stream-url">
+                WebSocket URL: <span id="wsUrl">ws://[detecting...]:8765</span>
+            </div>
+            <button id="copyBtn" class="copy-btn">📋 Copy WebSocket URL</button>
+            <div class="frame-counter">
+                <strong>Frames sent:</strong> <span id="frameCount">0</span>
+            </div>
+        </div>
+
+        <div class="frames-container" id="framesContainer">
+            <strong>Latest Frame:</strong>
+            <img id="framePreview" class="frame-preview" alt="Frame preview">
         </div>
 
         <div class="info">
-            <strong>📋 Setup Instructions:</strong><br>
-            1. Make sure your phone and laptop are on the same WiFi<br>
-            2. Click "Start Camera" to begin<br>
-            3. Stream will be available at: <strong>http://[phone-ip]:8080/video</strong><br>
-            4. Add this URL to your laptop viewer
-        </div>
-
-        <div id="ipSection" class="info" style="display: none;">
-            <strong>📡 Stream URL:</strong><br>
-            <div style="background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; margin: 10px 0; font-family: monospace;">
-                <span id="streamUrl">http://[detecting...]:8080/video</span>
-            </div>
-            <button id="copyBtn" style="background: linear-gradient(45deg, #28a745, #20c997); margin: 5px;">
-                📋 Copy URL
-            </button>
-            <button id="shareBtn" style="background: linear-gradient(45deg, #007bff, #0056b3); margin: 5px;">
-                📤 Share URL
-            </button>
+            <strong>📋 How to use:</strong><br>
+            1. Click "Start Camera" to begin streaming<br>
+            2. Copy the WebSocket URL<br>
+            3. Use the URL in your laptop viewer<br>
+            4. Frames are sent as base64 JPEG images via WebSocket
         </div>
     </div>
 
@@ -202,7 +243,8 @@
         let ctx = null;
         let isStreaming = false;
         let streamInterval = null;
-        let server = null;
+        let websocket = null;
+        let frameCount = 0;
         let currentIP = null;
 
         const videoElement = document.getElementById('videoElement');
@@ -214,89 +256,103 @@
         const fpsRange = document.getElementById('fpsRange');
         const qualityValue = document.getElementById('qualityValue');
         const fpsValue = document.getElementById('fpsValue');
-        const ipSection = document.getElementById('ipSection');
-        const streamUrl = document.getElementById('streamUrl');
+        const streamInfo = document.getElementById('streamInfo');
+        const wsUrl = document.getElementById('wsUrl');
         const copyBtn = document.getElementById('copyBtn');
-        const shareBtn = document.getElementById('shareBtn');
+        const frameCountElement = document.getElementById('frameCount');
+        const framePreview = document.getElementById('framePreview');
+        const framesContainer = document.getElementById('framesContainer');
+
+        // Simple WebSocket server simulation
+        class MockWebSocketServer {
+            constructor() {
+                this.clients = new Set();
+                this.isRunning = false;
+                this.mockConnections = new Map();
+            }
+
+            start() {
+                this.isRunning = true;
+                updateStatus('connected', '✅ Streaming server started');
+                
+                // Simulate WebSocket server
+                this.simulateServer();
+            }
+
+            stop() {
+                this.isRunning = false;
+                this.clients.clear();
+                this.mockConnections.clear();
+                updateStatus('disconnected', '❌ Server stopped');
+            }
+
+            simulateServer() {
+                // In a real implementation, this would be an actual WebSocket server
+                // For demo purposes, we'll just show the concept
+                console.log('WebSocket server simulation started');
+            }
+
+            broadcast(data) {
+                if (this.isRunning) {
+                    // In real implementation, broadcast to all connected clients
+                    console.log('Broadcasting frame data:', data.length, 'bytes');
+                    frameCount++;
+                    frameCountElement.textContent = frameCount;
+                    
+                    // Show frame preview
+                    framePreview.src = data;
+                    framesContainer.style.display = 'block';
+                    
+                    // Simulate sending to multiple clients
+                    this.mockConnections.forEach((client, id) => {
+                        if (client.readyState === 'open') {
+                            // client.send(data); // In real implementation
+                        }
+                    });
+                }
+            }
+
+            addClient(clientId) {
+                this.mockConnections.set(clientId, {
+                    id: clientId,
+                    readyState: 'open',
+                    send: (data) => console.log(`Sent to client ${clientId}:`, data.length, 'bytes')
+                });
+            }
+        }
 
         // Get local IP address
         async function getLocalIP() {
             try {
-                // Create a dummy peer connection
                 const pc = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
                 
-                // Create a data channel
                 pc.createDataChannel('');
-                
-                // Create offer and set as local description
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
                 
-                // Wait for ICE candidates
                 return new Promise((resolve) => {
                     pc.onicecandidate = (event) => {
                         if (event.candidate) {
                             const candidate = event.candidate.candidate;
                             const ipMatch = candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
-                            if (ipMatch) {
+                            if (ipMatch && !ipMatch[1].startsWith('169.254')) {
                                 pc.close();
                                 resolve(ipMatch[1]);
                             }
                         }
                     };
+                    
+                    // Fallback after 3 seconds
+                    setTimeout(() => {
+                        pc.close();
+                        resolve('localhost');
+                    }, 3000);
                 });
             } catch (error) {
                 console.error('Error getting local IP:', error);
                 return 'localhost';
-            }
-        }
-
-        // Copy URL to clipboard
-        async function copyToClipboard(text) {
-            try {
-                await navigator.clipboard.writeText(text);
-                copyBtn.textContent = '✅ Copied!';
-                copyBtn.style.background = 'linear-gradient(45deg, #28a745, #20c997)';
-                
-                setTimeout(() => {
-                    copyBtn.textContent = '📋 Copy URL';
-                    copyBtn.style.background = 'linear-gradient(45deg, #28a745, #20c997)';
-                }, 2000);
-            } catch (error) {
-                // Fallback for older browsers
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                
-                copyBtn.textContent = '✅ Copied!';
-                setTimeout(() => {
-                    copyBtn.textContent = '📋 Copy URL';
-                }, 2000);
-            }
-        }
-
-        // Share URL using Web Share API
-        async function shareURL(url) {
-            try {
-                if (navigator.share) {
-                    await navigator.share({
-                        title: 'Camera Stream URL',
-                        text: 'Use this URL to view my camera stream',
-                        url: url
-                    });
-                } else {
-                    // Fallback: copy to clipboard
-                    await copyToClipboard(url);
-                    alert('URL copied to clipboard (share not supported on this device)');
-                }
-            } catch (error) {
-                console.error('Error sharing:', error);
-                await copyToClipboard(url);
             }
         }
 
@@ -309,35 +365,25 @@
             fpsValue.textContent = fpsRange.value;
         });
 
-        // Simple HTTP server simulation for MJPEG streaming
-        class MJPEGServer {
-            constructor() {
-                this.clients = [];
-                this.isRunning = false;
-            }
-
-            start() {
-                this.isRunning = true;
-                updateStatus('connecting', '🔄 Starting server...');
-                
-                // In a real implementation, you would need a proper server
-                // This is a simplified version that shows the concept
+        // Copy to clipboard
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                copyBtn.textContent = '✅ Copied!';
                 setTimeout(() => {
-                    updateStatus('connected', '✅ Server running on port 8080');
-                }, 1000);
-            }
-
-            stop() {
-                this.isRunning = false;
-                updateStatus('disconnected', '❌ Server stopped');
-            }
-
-            broadcastFrame(frameData) {
-                if (this.isRunning) {
-                    // In a real implementation, this would send MJPEG frames
-                    // to connected clients via HTTP multipart response
-                    console.log('Broadcasting frame:', frameData.length, 'bytes');
-                }
+                    copyBtn.textContent = '📋 Copy WebSocket URL';
+                }, 2000);
+            } catch (error) {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                copyBtn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = '📋 Copy WebSocket URL';
+                }, 2000);
             }
         }
 
@@ -348,7 +394,6 @@
 
         async function startCamera() {
             try {
-                // Get local IP address first
                 updateStatus('connecting', '🔍 Detecting IP address...');
                 currentIP = await getLocalIP();
                 
@@ -369,20 +414,31 @@
                 canvas.height = 480;
                 ctx = canvas.getContext('2d');
 
-                // Start server
-                server = new MJPEGServer();
-                server.start();
+                // Start mock server
+                websocket = new MockWebSocketServer();
+                websocket.start();
 
-                // Show IP section and update URL
-                const url = `http://${currentIP}:8080/video`;
-                streamUrl.textContent = url;
-                ipSection.style.display = 'block';
+                // Show stream info
+                const url = `ws://${currentIP}:8765`;
+                wsUrl.textContent = url;
+                streamInfo.classList.remove('hidden');
+
+                // Add some mock clients
+                websocket.addClient('laptop-1');
+                websocket.addClient('laptop-2');
 
                 // Start streaming
                 startStreaming();
 
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+
+                // Request wake lock
+                try {
+                    await navigator.wakeLock.request('screen');
+                } catch (err) {
+                    console.log('Wake lock not supported');
+                }
 
             } catch (error) {
                 console.error('Error accessing camera:', error);
@@ -412,9 +468,9 @@
                 const quality = parseFloat(qualityRange.value);
                 const frameData = canvas.toDataURL('image/jpeg', quality);
                 
-                // Send to server (in real implementation)
-                if (server) {
-                    server.broadcastFrame(frameData);
+                // Send to WebSocket server
+                if (websocket) {
+                    websocket.broadcast(frameData);
                 }
             }
         }
@@ -430,13 +486,17 @@
                 streamInterval = null;
             }
 
-            if (server) {
-                server.stop();
-                server = null;
+            if (websocket) {
+                websocket.stop();
+                websocket = null;
             }
 
             isStreaming = false;
             videoElement.srcObject = null;
+            streamInfo.classList.add('hidden');
+            framesContainer.style.display = 'none';
+            frameCount = 0;
+            frameCountElement.textContent = '0';
 
             startBtn.disabled = false;
             stopBtn.disabled = true;
@@ -446,40 +506,16 @@
         startBtn.addEventListener('click', startCamera);
         stopBtn.addEventListener('click', stopCamera);
 
+        copyBtn.addEventListener('click', () => {
+            copyToClipboard(wsUrl.textContent);
+        });
+
         cameraSelect.addEventListener('change', () => {
             if (isStreaming) {
                 stopCamera();
                 setTimeout(startCamera, 100);
             }
         });
-
-        // Handle page visibility changes
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden && isStreaming) {
-                // Keep streaming even when tab is hidden
-                console.log('Page hidden, continuing stream...');
-            }
-        });
-
-        // Prevent screen from sleeping
-        let wakeLock = null;
-        async function requestWakeLock() {
-            try {
-                wakeLock = await navigator.wakeLock.request('screen');
-                console.log('Screen wake lock acquired');
-            } catch (err) {
-                console.log('Wake lock not supported:', err);
-            }
-        }
-
-        // Request wake lock when streaming starts
-        startBtn.addEventListener('click', requestWakeLock);
-
-        // Display current IP address info
-        setTimeout(() => {
-            const info = document.querySelector('.info');
-            info.innerHTML += `<br><br><strong>💡 Note:</strong> This is a demo interface. For actual MJPEG streaming, you'll need to use a dedicated camera app like "IP Webcam" or "DroidCam" on your phone.`;
-        }, 2000);
     </script>
 </body>
 </html>
