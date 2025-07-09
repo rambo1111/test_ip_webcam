@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mobile Camera Streamer</title>
+    <title>WebSocket Camera Streamer</title>
     <style>
         * {
             margin: 0;
@@ -94,9 +94,9 @@
             border: 2px solid #dc3545;
         }
 
-        .status.connecting {
-            background: rgba(255, 193, 7, 0.3);
-            border: 2px solid #ffc107;
+        .status.streaming {
+            background: rgba(0, 123, 255, 0.3);
+            border: 2px solid #007bff;
         }
 
         .camera-select {
@@ -111,15 +111,6 @@
             border-radius: 10px;
             font-size: 16px;
             width: 100%;
-        }
-
-        .info {
-            background: rgba(0,0,0,0.3);
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            font-size: 14px;
-            line-height: 1.5;
         }
 
         .quality-controls {
@@ -137,38 +128,28 @@
             margin: 10px 0;
         }
 
-        .stream-url {
+        .stats {
             background: rgba(0,0,0,0.5);
             padding: 15px;
             border-radius: 10px;
             margin: 15px 0;
-            font-family: monospace;
-            word-break: break-all;
-            border: 2px solid #28a745;
-        }
-
-        .copy-btn {
-            background: linear-gradient(45deg, #28a745, #20c997) !important;
-            margin: 5px;
-        }
-
-        .hidden {
             display: none;
         }
 
-        .server-info {
-            background: rgba(255, 193, 7, 0.3);
-            border: 2px solid #ffc107;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 15px 0;
-            font-size: 14px;
+        .stats.show {
+            display: block;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📱 Mobile Camera Streamer</h1>
+        <h1>📱 WebSocket Camera Streamer</h1>
         
         <div class="camera-container">
             <video id="videoElement" autoplay muted playsinline></video>
@@ -190,37 +171,31 @@
                 </div>
                 <div style="flex: 1; margin-left: 10px;">
                     <label for="fpsRange">FPS: <span id="fpsValue">10</span></label>
-                    <input type="range" id="fpsRange" min="5" max="30" step="5" value="10">
+                    <input type="range" id="fpsRange" min="1" max="30" step="1" value="10">
                 </div>
             </div>
 
-            <button id="startBtn">Start Camera</button>
-            <button id="stopBtn" disabled>Stop Camera</button>
+            <button id="startBtn">Start Streaming</button>
+            <button id="stopBtn" disabled>Stop Streaming</button>
         </div>
 
         <div id="status" class="status disconnected">
             📡 Ready to start streaming
         </div>
 
-        <div class="server-info">
-            <strong>⚠️ Important:</strong><br>
-            This is a client-side demo. For real WebSocket streaming, you need to run a WebSocket server (like Node.js with ws library) on your phone or use a tool like ngrok to expose a local server.
-        </div>
-
-        <div id="streamInfo" class="info hidden">
-            <strong>📡 Stream Details:</strong><br>
-            <div class="stream-url">
-                WebSocket URL: <span id="wsUrl">ws://[detecting...]:8765</span>
+        <div id="stats" class="stats">
+            <div class="stat-row">
+                <span>Connected Clients:</span>
+                <span id="clientCount">0</span>
             </div>
-            <button id="copyBtn" class="copy-btn">📋 Copy WebSocket URL</button>
-        </div>
-
-        <div class="info">
-            <strong>📋 What you're missing:</strong><br>
-            1. A real WebSocket server running on your phone<br>
-            2. The server should accept connections on port 8765<br>
-            3. Server should broadcast JPEG frames to connected clients<br>
-            4. Use Node.js with 'ws' library or similar server technology
+            <div class="stat-row">
+                <span>Frames Sent:</span>
+                <span id="framesSent">0</span>
+            </div>
+            <div class="stat-row">
+                <span>Streaming Time:</span>
+                <span id="streamTime">00:00</span>
+            </div>
         </div>
     </div>
 
@@ -230,8 +205,9 @@
         let ctx = null;
         let isStreaming = false;
         let streamInterval = null;
-        let websocket = null;
-        let currentIP = null;
+        let framesSent = 0;
+        let startTime = null;
+        let timeInterval = null;
 
         const videoElement = document.getElementById('videoElement');
         const startBtn = document.getElementById('startBtn');
@@ -242,44 +218,10 @@
         const fpsRange = document.getElementById('fpsRange');
         const qualityValue = document.getElementById('qualityValue');
         const fpsValue = document.getElementById('fpsValue');
-        const streamInfo = document.getElementById('streamInfo');
-        const wsUrl = document.getElementById('wsUrl');
-        const copyBtn = document.getElementById('copyBtn');
-
-        // Get local IP address
-        async function getLocalIP() {
-            try {
-                const pc = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-                });
-                
-                pc.createDataChannel('');
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                
-                return new Promise((resolve) => {
-                    pc.onicecandidate = (event) => {
-                        if (event.candidate) {
-                            const candidate = event.candidate.candidate;
-                            const ipMatch = candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
-                            if (ipMatch && !ipMatch[1].startsWith('169.254')) {
-                                pc.close();
-                                resolve(ipMatch[1]);
-                            }
-                        }
-                    };
-                    
-                    // Fallback after 3 seconds
-                    setTimeout(() => {
-                        pc.close();
-                        resolve('localhost');
-                    }, 3000);
-                });
-            } catch (error) {
-                console.error('Error getting local IP:', error);
-                return 'localhost';
-            }
-        }
+        const stats = document.getElementById('stats');
+        const clientCount = document.getElementById('clientCount');
+        const framesSentElement = document.getElementById('framesSent');
+        const streamTime = document.getElementById('streamTime');
 
         // Update display values
         qualityRange.addEventListener('input', () => {
@@ -290,38 +232,24 @@
             fpsValue.textContent = fpsRange.value;
         });
 
-        // Copy to clipboard
-        async function copyToClipboard(text) {
-            try {
-                await navigator.clipboard.writeText(text);
-                copyBtn.textContent = '✅ Copied!';
-                setTimeout(() => {
-                    copyBtn.textContent = '📋 Copy WebSocket URL';
-                }, 2000);
-            } catch (error) {
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                copyBtn.textContent = '✅ Copied!';
-                setTimeout(() => {
-                    copyBtn.textContent = '📋 Copy WebSocket URL';
-                }, 2000);
-            }
-        }
-
         function updateStatus(type, message) {
             status.className = `status ${type}`;
             status.textContent = message;
         }
 
+        function updateStats() {
+            framesSentElement.textContent = framesSent;
+            
+            if (startTime) {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                streamTime.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }
+
         async function startCamera() {
             try {
-                updateStatus('connecting', '🔍 Detecting IP address...');
-                currentIP = await getLocalIP();
-                
                 const constraints = {
                     video: {
                         facingMode: cameraSelect.value,
@@ -339,15 +267,17 @@
                 canvas.height = 480;
                 ctx = canvas.getContext('2d');
 
-                // Show stream info
-                const url = `ws://${currentIP}:8765`;
-                wsUrl.textContent = url;
-                streamInfo.classList.remove('hidden');
-
-                updateStatus('connected', '✅ Camera ready - Need WebSocket server');
-
+                // Start streaming
+                startStreaming();
+                
+                updateStatus('streaming', '🔴 Streaming active');
+                stats.classList.add('show');
+                
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+                
+                startTime = Date.now();
+                timeInterval = setInterval(updateStats, 1000);
 
                 // Request wake lock
                 try {
@@ -363,6 +293,45 @@
             }
         }
 
+        function startStreaming() {
+            if (!isStreaming) {
+                isStreaming = true;
+                const fps = parseInt(fpsRange.value);
+                const interval = 1000 / fps;
+
+                streamInterval = setInterval(() => {
+                    captureFrame();
+                }, interval);
+            }
+        }
+
+        function captureFrame() {
+            if (ctx && videoElement.videoWidth > 0) {
+                // Draw video frame to canvas
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                
+                // Convert to JPEG
+                const quality = parseFloat(qualityRange.value);
+                const frameData = canvas.toDataURL('image/jpeg', quality);
+                
+                // Send frame data to server via fetch
+                fetch('/frame', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        frame: frameData,
+                        timestamp: Date.now()
+                    })
+                }).then(() => {
+                    framesSent++;
+                }).catch(error => {
+                    console.error('Error sending frame:', error);
+                });
+            }
+        }
+
         function stopCamera() {
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
@@ -374,9 +343,17 @@
                 streamInterval = null;
             }
 
+            if (timeInterval) {
+                clearInterval(timeInterval);
+                timeInterval = null;
+            }
+
             isStreaming = false;
             videoElement.srcObject = null;
-            streamInfo.classList.add('hidden');
+            stats.classList.remove('show');
+            
+            framesSent = 0;
+            startTime = null;
 
             startBtn.disabled = false;
             stopBtn.disabled = true;
@@ -388,16 +365,24 @@
         startBtn.addEventListener('click', startCamera);
         stopBtn.addEventListener('click', stopCamera);
 
-        copyBtn.addEventListener('click', () => {
-            copyToClipboard(wsUrl.textContent);
-        });
-
         cameraSelect.addEventListener('change', () => {
             if (isStreaming) {
                 stopCamera();
                 setTimeout(startCamera, 100);
             }
         });
+
+        // Get client count periodically
+        setInterval(() => {
+            fetch('/clients')
+                .then(response => response.json())
+                .then(data => {
+                    clientCount.textContent = data.count;
+                })
+                .catch(() => {
+                    clientCount.textContent = '0';
+                });
+        }, 2000);
     </script>
 </body>
 </html>
