@@ -156,23 +156,13 @@
             display: none;
         }
 
-        .frames-container {
-            display: none;
-            margin: 20px 0;
-        }
-
-        .frame-preview {
-            width: 100%;
-            max-width: 300px;
+        .server-info {
+            background: rgba(255, 193, 7, 0.3);
+            border: 2px solid #ffc107;
+            padding: 15px;
             border-radius: 10px;
-            margin: 10px 0;
-        }
-
-        .frame-counter {
-            background: rgba(0,0,0,0.5);
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
+            margin: 15px 0;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -212,28 +202,25 @@
             📡 Ready to start streaming
         </div>
 
+        <div class="server-info">
+            <strong>⚠️ Important:</strong><br>
+            This is a client-side demo. For real WebSocket streaming, you need to run a WebSocket server (like Node.js with ws library) on your phone or use a tool like ngrok to expose a local server.
+        </div>
+
         <div id="streamInfo" class="info hidden">
             <strong>📡 Stream Details:</strong><br>
             <div class="stream-url">
                 WebSocket URL: <span id="wsUrl">ws://[detecting...]:8765</span>
             </div>
             <button id="copyBtn" class="copy-btn">📋 Copy WebSocket URL</button>
-            <div class="frame-counter">
-                <strong>Frames sent:</strong> <span id="frameCount">0</span>
-            </div>
-        </div>
-
-        <div class="frames-container" id="framesContainer">
-            <strong>Latest Frame:</strong>
-            <img id="framePreview" class="frame-preview" alt="Frame preview">
         </div>
 
         <div class="info">
-            <strong>📋 How to use:</strong><br>
-            1. Click "Start Camera" to begin streaming<br>
-            2. Copy the WebSocket URL<br>
-            3. Use the URL in your laptop viewer<br>
-            4. Frames are sent as base64 JPEG images via WebSocket
+            <strong>📋 What you're missing:</strong><br>
+            1. A real WebSocket server running on your phone<br>
+            2. The server should accept connections on port 8765<br>
+            3. Server should broadcast JPEG frames to connected clients<br>
+            4. Use Node.js with 'ws' library or similar server technology
         </div>
     </div>
 
@@ -244,7 +231,6 @@
         let isStreaming = false;
         let streamInterval = null;
         let websocket = null;
-        let frameCount = 0;
         let currentIP = null;
 
         const videoElement = document.getElementById('videoElement');
@@ -259,67 +245,6 @@
         const streamInfo = document.getElementById('streamInfo');
         const wsUrl = document.getElementById('wsUrl');
         const copyBtn = document.getElementById('copyBtn');
-        const frameCountElement = document.getElementById('frameCount');
-        const framePreview = document.getElementById('framePreview');
-        const framesContainer = document.getElementById('framesContainer');
-
-        // Simple WebSocket server simulation
-        class MockWebSocketServer {
-            constructor() {
-                this.clients = new Set();
-                this.isRunning = false;
-                this.mockConnections = new Map();
-            }
-
-            start() {
-                this.isRunning = true;
-                updateStatus('connected', '✅ Streaming server started');
-                
-                // Simulate WebSocket server
-                this.simulateServer();
-            }
-
-            stop() {
-                this.isRunning = false;
-                this.clients.clear();
-                this.mockConnections.clear();
-                updateStatus('disconnected', '❌ Server stopped');
-            }
-
-            simulateServer() {
-                // In a real implementation, this would be an actual WebSocket server
-                // For demo purposes, we'll just show the concept
-                console.log('WebSocket server simulation started');
-            }
-
-            broadcast(data) {
-                if (this.isRunning) {
-                    // In real implementation, broadcast to all connected clients
-                    console.log('Broadcasting frame data:', data.length, 'bytes');
-                    frameCount++;
-                    frameCountElement.textContent = frameCount;
-                    
-                    // Show frame preview
-                    framePreview.src = data;
-                    framesContainer.style.display = 'block';
-                    
-                    // Simulate sending to multiple clients
-                    this.mockConnections.forEach((client, id) => {
-                        if (client.readyState === 'open') {
-                            // client.send(data); // In real implementation
-                        }
-                    });
-                }
-            }
-
-            addClient(clientId) {
-                this.mockConnections.set(clientId, {
-                    id: clientId,
-                    readyState: 'open',
-                    send: (data) => console.log(`Sent to client ${clientId}:`, data.length, 'bytes')
-                });
-            }
-        }
 
         // Get local IP address
         async function getLocalIP() {
@@ -414,21 +339,12 @@
                 canvas.height = 480;
                 ctx = canvas.getContext('2d');
 
-                // Start mock server
-                websocket = new MockWebSocketServer();
-                websocket.start();
-
                 // Show stream info
                 const url = `ws://${currentIP}:8765`;
                 wsUrl.textContent = url;
                 streamInfo.classList.remove('hidden');
 
-                // Add some mock clients
-                websocket.addClient('laptop-1');
-                websocket.addClient('laptop-2');
-
-                // Start streaming
-                startStreaming();
+                updateStatus('connected', '✅ Camera ready - Need WebSocket server');
 
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
@@ -447,34 +363,6 @@
             }
         }
 
-        function startStreaming() {
-            if (!isStreaming) {
-                isStreaming = true;
-                const fps = parseInt(fpsRange.value);
-                const interval = 1000 / fps;
-
-                streamInterval = setInterval(() => {
-                    captureFrame();
-                }, interval);
-            }
-        }
-
-        function captureFrame() {
-            if (ctx && videoElement.videoWidth > 0) {
-                // Draw video frame to canvas
-                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                
-                // Convert to JPEG
-                const quality = parseFloat(qualityRange.value);
-                const frameData = canvas.toDataURL('image/jpeg', quality);
-                
-                // Send to WebSocket server
-                if (websocket) {
-                    websocket.broadcast(frameData);
-                }
-            }
-        }
-
         function stopCamera() {
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
@@ -486,20 +374,14 @@
                 streamInterval = null;
             }
 
-            if (websocket) {
-                websocket.stop();
-                websocket = null;
-            }
-
             isStreaming = false;
             videoElement.srcObject = null;
             streamInfo.classList.add('hidden');
-            framesContainer.style.display = 'none';
-            frameCount = 0;
-            frameCountElement.textContent = '0';
 
             startBtn.disabled = false;
             stopBtn.disabled = true;
+            
+            updateStatus('disconnected', '📡 Ready to start streaming');
         }
 
         // Event listeners
